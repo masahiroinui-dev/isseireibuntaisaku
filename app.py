@@ -87,9 +87,11 @@ if 'question_pool' not in st.session_state:
         st.session_state.pool_ptr = 0
         st.session_state.q_index = st.session_state.question_pool[0]
         st.session_state.history = []
+        st.session_state.canvas_key = 0 # キャンバスリセット用
     else:
         st.session_state.question_pool = []
         st.session_state.q_index = 0
+        st.session_state.canvas_key = 0
 
 if 'answer_status' not in st.session_state:
     st.session_state.answer_status = None
@@ -99,7 +101,7 @@ st.title("📝 英単語手書きテスト")
 # サイドバー設定
 st.sidebar.title("🖌️ 設定")
 stroke_width = st.sidebar.slider("ペンの太さ", 1, 15, 7)
-st.sidebar.info("dの棒を長く書くと認識しやすくなります。")
+st.sidebar.info("aとoを区別するため、aは丸をしっかり閉じ、oは少し縦長に書くと認識しやすくなります。")
 
 if not df.empty:
     current_question = df.iloc[st.session_state.q_index]
@@ -113,7 +115,8 @@ if not df.empty:
     </div>
     """, unsafe_allow_html=True)
 
-    # キャンバスの高さを250->180に調整して画面内に収める
+    # キャンバス
+    # keyに canvas_key を含めることで、ボタン押下時にリセット可能にする
     canvas_result = st_canvas(
         fill_color="rgba(255, 165, 0, 0.3)",
         stroke_width=stroke_width,
@@ -122,14 +125,17 @@ if not df.empty:
         height=180,
         width=600,
         drawing_mode="freedraw",
-        key=f"canvas_{st.session_state.q_index}",
+        key=f"canvas_{st.session_state.q_index}_{st.session_state.canvas_key}",
     )
 
-    # ボタンレイアウト（少し高さを抑えるために余白なしの列を使用）
+    # ボタンレイアウト
     col_clear, col_judge, col_prev, col_next = st.columns([1, 1, 1, 1])
 
     with col_clear:
         if st.button("書き直す", use_container_width=True):
+            # カウンタを増やすことでキャンバスをリセット
+            st.session_state.canvas_key += 1
+            st.session_state.answer_status = None
             st.rerun()
 
     with col_judge:
@@ -142,25 +148,32 @@ if not df.empty:
                 
                 open_cv_image = np.array(bg)
                 gray = cv2.cvtColor(open_cv_image, cv2.COLOR_RGB2GRAY)
+                # 反転二値化
                 _, binary = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY_INV)
+                
+                # 線を少し太らせて輪郭を強調
                 kernel = np.ones((2,2), np.uint8)
                 dilated = cv2.dilate(binary, kernel, iterations=1)
                 processed_img = cv2.bitwise_not(dilated)
                 
-                with st.spinner('確認中...'):
+                with st.spinner('AIが判定中...'):
+                    # 認識（a-o判別のために mag_ratio を調整）
                     results = reader.readtext(
                         processed_img, 
                         detail=0, 
                         allowlist='abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ',
-                        mag_ratio=2.0 
+                        mag_ratio=1.5 # 拡大率を微調整
                     )
                     recognized_text = "".join(results).replace(" ", "").lower()
                     correct_word = q_word.strip().lower()
+                    
+                    # 類似度判定
                     similarity = difflib.SequenceMatcher(None, recognized_text, correct_word).ratio()
                     
                     if recognized_text == correct_word:
                         st.session_state.answer_status = ("success", f"正解: {correct_word}")
                     elif similarity >= 0.75:
+                        # a/o の誤読を救済しつつ正解とするロジック
                         st.session_state.answer_status = ("success", f"正解！ (推測: {correct_word})")
                     else:
                         st.session_state.answer_status = ("error", f"認識: {recognized_text} / 正解: {correct_word}")
@@ -193,8 +206,8 @@ if not df.empty:
             st.balloons()
         else:
             st.error(msg)
-            if st.checkbox("画像確認"):
-                st.image(processed_img, caption="解析用画像")
+            if st.checkbox("AIがどう見たか確認"):
+                st.image(processed_img, caption="AI解析用画像")
 else:
     st.warning("問題データがありません。")
 

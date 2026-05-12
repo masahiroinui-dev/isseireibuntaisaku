@@ -116,7 +116,6 @@ if not df.empty:
     """, unsafe_allow_html=True)
 
     # キャンバス
-    # keyに canvas_key を含めることで、ボタン押下時にリセット可能にする
     canvas_result = st_canvas(
         fill_color="rgba(255, 165, 0, 0.3)",
         stroke_width=stroke_width,
@@ -133,7 +132,6 @@ if not df.empty:
 
     with col_clear:
         if st.button("書き直す", use_container_width=True):
-            # カウンタを増やすことでキャンバスをリセット
             st.session_state.canvas_key += 1
             st.session_state.answer_status = None
             st.rerun()
@@ -148,35 +146,38 @@ if not df.empty:
                 
                 open_cv_image = np.array(bg)
                 gray = cv2.cvtColor(open_cv_image, cv2.COLOR_RGB2GRAY)
-                # 反転二値化
                 _, binary = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY_INV)
                 
-                # 線を少し太らせて輪郭を強調
+                # 線の太らせすぎを防ぐため、kernelサイズを調整
                 kernel = np.ones((2,2), np.uint8)
                 dilated = cv2.dilate(binary, kernel, iterations=1)
                 processed_img = cv2.bitwise_not(dilated)
                 
                 with st.spinner('AIが判定中...'):
-                    # 認識（a-o判別のために mag_ratio を調整）
                     results = reader.readtext(
                         processed_img, 
                         detail=0, 
                         allowlist='abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ',
-                        mag_ratio=1.5 # 拡大率を微調整
+                        mag_ratio=1.5
                     )
                     recognized_text = "".join(results).replace(" ", "").lower()
                     correct_word = q_word.strip().lower()
                     
-                    # 類似度判定
+                    # 類似度の計算
                     similarity = difflib.SequenceMatcher(None, recognized_text, correct_word).ratio()
+                    
+                    # 判定の厳格化
+                    # 1. 文字数が全く違う（2文字以上差がある）場合は推測とみなして弾く
+                    len_diff = abs(len(recognized_text) - len(correct_word))
                     
                     if recognized_text == correct_word:
                         st.session_state.answer_status = ("success", f"正解: {correct_word}")
-                    elif similarity >= 0.75:
-                        # a/o の誤読を救済しつつ正解とするロジック
-                        st.session_state.answer_status = ("success", f"正解！ (推測: {correct_word})")
+                    elif len_diff <= 1 and similarity >= 0.8:
+                        # 文字数の差が少なく、かつ8割以上一致している場合のみ推測を許容
+                        st.session_state.answer_status = ("success", f"正解！ (推測判定: {correct_word})")
                     else:
-                        st.session_state.answer_status = ("error", f"認識: {recognized_text} / 正解: {correct_word}")
+                        # 認識された文字が少なすぎたり多すぎたりする場合は不正解
+                        st.session_state.answer_status = ("error", f"認識: {recognized_text if recognized_text else '判定不能'} / 正解: {correct_word}")
             else:
                 st.warning("何か書いてください。")
 

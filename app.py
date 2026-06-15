@@ -211,15 +211,12 @@ if not df.empty:
                     recognized_text = "".join(results).replace(" ", "").lower()
                     correct_word = q_word.strip().lower()
                     
-                    similarity = difflib.SequenceMatcher(None, recognized_text, correct_word).ratio()
-                    len_diff = abs(len(recognized_text) - len(correct_word))
-                    
+                    # --- 判定ロジックの厳格化（完全一致のみ） ---
                     if recognized_text == correct_word:
                         st.session_state.answer_status = ("success", f"✨ クリティカルヒット！ 正解: {correct_word}")
-                    elif len_diff <= 1 and similarity >= 0.8:
-                        st.session_state.answer_status = ("success", f"👍 かすり傷を与えた！ 正解！ (判定: {correct_word})")
                     else:
-                        st.session_state.answer_status = ("error", f"💥 ミス！ ダメージを受けそう。 汝の解答: {recognized_text if recognized_text else '判定不能'} / 正解: {correct_word}")
+                        # 1文字でも違えばすべてここ（間違い扱い）になります
+                        st.session_state.answer_status = ("error", f"💥 ミス！ 正解とは異なるようだ。 汝の解答: {recognized_text if recognized_text else '判定不能'} / 正解: {correct_word}")
             else:
                 st.warning("キャンバスに文字を刻むのだ。")
 
